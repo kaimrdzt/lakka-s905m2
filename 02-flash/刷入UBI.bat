@@ -10,7 +10,7 @@ echo.
 echo  前置条件：
 echo    1. bootloader 已刷好（开机横幅 diag-r80 或 diag-r79）
 echo    2. COM14 串口线已连，【关闭所有其它串口终端】
-echo    3. 网线已连，本机 IP = 172.16.30.10
+echo    3. 网线已连，本机 IP = 192.0.2.10
 echo    4. tftp\ 目录内为 r79 分段（sha256 前缀 6221b5e0）
 echo.
 

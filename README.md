@@ -1,6 +1,6 @@
 # B860AV1.1-T 定制 Lakka 系统 — 完整移植工程
 
-> **硬件**：Amlogic S905M2-B（GXL 平台）/ 1GB DDR3 / 8GiB Micron MLC NAND
+> **硬件**：Amlogic S905M2（GXL 家族，Rev 21:d）/ 1GiB DDR3 @792MHz / 8GiB Micron MLC NAND
 > **整机**：ZTE B860AV1.1-T 机顶盒
 > 生成：2026-11-26（首版 11-25，主题/颜色修复/720p 更新至 11-26）。
 > 本项目是当前盒子上运行固件的**完整可复现交付**：刷机脚本、编译脚本、配置、全部避坑记录。
@@ -85,7 +85,7 @@ BL1(ROM) → BL2(原厂 2018) → BL30/BL31(原厂) → BL33 = U-Boot 2026.10 di
 | `.config/timesyncd.conf.d/ntp.conf` | NTP=ntp.aliyun.com ntp.tencent.com + Google fallback |
 | `.cache/timezone` | `TIMEZONE=Asia/Shanghai`（EnvironmentFile 格式） |
 | `.cache/last-epoch` | 断电时间恢复时间戳（每分钟刷新） |
-| `iwd/SFT_xXx.psk` | WiFi 凭据（iwd 持久化到 /storage/iwd） |
+| `iwd/<你的SSID>.psk` | WiFi 凭据（iwd 持久化到 /storage/iwd） |
 | `assets/xmb/monochrome/png/bg.png` + `assets/branding/logo.png` | 自定义开机画面 |
 
 ---
@@ -94,7 +94,7 @@ BL1(ROM) → BL2(原厂 2018) → BL30/BL31(原厂) → BL33 = U-Boot 2026.10 di
 
 ### 2.1 前置条件
 
-- Windows PC：以太网口静态 IP `172.16.30.10/16`；COM14 串口线（USB-CH340，115200）
+- Windows PC：以太网口静态 IP `192.0.2.10/24`（示例网段，按实际修改）；COM14 串口线（USB-CH340，115200）
 - 工具：Amlogic USB Burning Tool v2.x；管理员权限
 
 ### 2.2 第 1 步：刷 bootloader（UBT）
@@ -120,7 +120,7 @@ UBT 刷机工具为第三方软件，本仓库不重新分发。请从 Amlogic �
 
 ```sh
 # PC 上（storage-backup-public.tgz 从 Releases 下载，已脱敏）：
-scp storage-backup-public.tgz root@172.16.30.100:/tmp/
+scp storage-backup-public.tgz root@192.0.2.100:/tmp/
 # 盒子上：
 cd / && tar xzf /tmp/storage-backup-public.tgz
 sync && reboot
@@ -133,8 +133,8 @@ sync && reboot
 
 ```sh
 lsmod | grep 8189fs                        # 驱动已加载
-iwctl station wlan0 show                   # State=connected SFT_xXx + IPv4
-ip -4 addr show wlan0                      # 192.168.9.14/23
+iwctl station wlan0 show                   # State=connected <你的SSID> + IPv4
+ip -4 addr show wlan0                      # 192.0.2.150/24
 iw dev wlan0 get power_save                # off
 ping -c2 223.5.5.5                         # 公网通
 date                                       # CST 北京时间
@@ -368,7 +368,7 @@ lakka-s905m2\
 
 DT 依据：glue 节点 usb@d0078080 的 dr_mode="peripheral" + dwc2 子节点 dr_mode="peripheral"，与上游 Khadas VIM1 配置完全一致。尝试改成 host 在 GXL 上无效（PHY 初始化怪癖：必须以设备模式启动，主机模式依赖 OTG role-switch，而 glue 非 otg 模式时该机制不注册——实测两个口全死，已回滚）。
 
-U 盘实测：usb 1-1 "Disk 2.0" (346d:5678) → usb-storage → sda (8.05GB) → sda1 (vfat) → 自动挂载 /storage/roms/sda1-usb-VendorCo_Product。ROM 通过 SMB（\\172.16.30.100\storage\roms\）或网络拷入。
+U 盘实测：usb 1-1 "Disk 2.0" (346d:5678) → usb-storage → sda (8.05GB) → sda1 (vfat) → 自动挂载 /storage/roms/sda1-usb-VendorCo_Product。ROM 通过 SMB（\\192.0.2.100\storage\roms\）或网络拷入。
 
 ### 8.1 双主机模式内核补丁（v80，已实装）
 
@@ -388,7 +388,7 @@ U 盘实测：usb 1-1 "Disk 2.0" (346d:5678) → usb-storage → sda (8.05GB) �
 
 在 PC 浏览器（与盒子同网段）打开：
 
-    http://172.16.30.100:6080/vnc_lite.html
+    http://192.0.2.100:6080/vnc_lite.html
 
 点 **Connect** 即可看到 HDMI 实时画面，鼠标/键盘可直接操作盒子（RA 菜单导航）。
 
@@ -573,4 +573,4 @@ make b860av11t_min_defconfig     # 或 b860av11t_net_defconfig
 
 **安全说明**：Releases 中的 `storage-backup-public.tgz` 已剔除 `storage/iwd/` 与
 `storage/.cache/connman/`，不含 WiFi SSID、密码或 PSK 哈希。本仓库所有内容不含任何凭据。
-文中出现的内网地址（`172.16.30.x`、`192.168.9.x`）均为示例拓扑，请按自己的网络替换。
+文中地址均为 RFC 5737 文档示例网段（`192.0.2.0/24`），不代表实际部署网络，请按自己的网络替换。

@@ -17,7 +17,7 @@ python3 /mnt/d/b860/uboot-2026.10/repack.py \
     /mnt/d/b860/uboot-2026.10/out/boot-diag-r80.img
 echo "---- audit ----"
 B=$DST/u-boot.bin
-for s in 'nandprobe' 'booti' 'ubi read' 'nand-ubi' 'wget' 'ping' 'ipaddr' '172.16.30.100'; do
+for s in 'nandprobe' 'booti' 'ubi read' 'nand-ubi' 'wget' 'ping' 'ipaddr' 'ip='; do
   echo "  '$s' refs: $(strings $B | grep -c "$s")"
 done
 echo "  bootdelay refs: $(strings $B | grep -c 'bootdelay')"
