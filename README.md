@@ -19,14 +19,15 @@
 
 | 项目 | 规格 | 备注 |
 |---|---|---|
-| SoC | Amlogic S905M2-B（GXL 平台，`amlogic,meson-gxl`） | 4× ARM Cortex-A53，cpufreq 动态调频 |
-| GPU | ARM Mali-450（`arm,mali-450`） | lima 驱动，固定电压运行 |
-| 内存 | 1GiB DDR3，单 Rank | DTB `memory@0` = `0x40000000` |
-| 存储 | 8GiB Micron MT29F64G08CBABBWP **MLC NAND** | 4096 PEB × 2MiB，page 2KiB，ECC 40-bit，无 SLC 模拟 |
-| 网络 | 10/100M RMII（`snps,dwmac-3.70a`） | 内部 PHY 地址 8，`amlogic,meson-gxbb-dwmac` |
-| WiFi | RTL8189FS（SDIO） | DTB 兼容 `brcm,bcm4329-fmac`，需专用 `8189fs` 驱动（§3.3） |
-| 蓝牙 | BCM43438 节点存在，**已禁用** | 硬件未贴片 / 无天线 |
-| USB | 2× USB2.0：1× Host（xhci）+ 1× OTG（dwc2） | OTG 默认 peripheral，仅用于刷机；v80 补丁可改双 Host（§8.1） |
+| SoC | Amlogic S905M2（GXL 家族，Revision 21:d，`amlogic,meson-gxl`） | 4× Cortex-A53（r0p4）；BL2 固定 1200MHz，运行走 SCPI DVFS |
+| GPU | ARM Mali-450 MP3（`arm,mali-450`） | gp + pp0/pp1/pp2，lima 驱动，无 regulator（固定电压） |
+| 内存 | 1GiB DDR3 @ 792MHz，单 Rank，2T-CL11 | `mem=1008M`，顶部 16MiB 划给 ramoops；可用约 784MiB + CMA 128MiB |
+| 存储 | 8GiB Micron MT29F64G08CBABA（U-Boot 报名 `MT29F64G08CBABBWP`）**MLC NAND** | 1 LUN × 4096 blocks，page 2KiB，BCH40/1K，8-bit @250MHz，随机化强制开启，无 SLC 模拟 |
+| 网络 | Synopsys DWMAC1000（`snps,dwmac-3.70a`），10/100M RMII | 片内 PHY 地址 8（OUI `0181.4400`），irq 40 |
+| WiFi | SDIO（mmc2，high-speed），RTL8189FS | DTB 兼容 `brcm,bcm4329-fmac`，需专用 `8189fs` 驱动（§3.3） |
+| 蓝牙 | DTB 声明 BCM43438（shutdown GPIO 96），**节点已禁用** | 芯片型号未逐一核实，无天线/未贴片 |
+| USB | dwc3-meson-g12a（2× USB2，0× USB3）+ xhci + dwc2 OTG | OTG 默认 peripheral，仅用于刷机；v80 补丁可改双 Host（§8.1） |
+| 存储扩展 | TF 卡槽（`d0072000.mmc`，带 CD 热插拔 GPIO） | 可作第二存储/启动盘 |
 | 显示 | HDMI 1.4（`amlogic,meson-gxl-dw-hdmi`） | 720p60 / 1080p60 实测可用 |
 | 音频 | AIU（I2S）+ HDMI 音频 | dai-link-1 的 codec-0 必须指向 `AIU_HDMI CTRL_I2S`，指向 `hdmi_tx` 会与 dai-link-2 冲突（-EBUSY） |
 | 视频解码 | GXL VDEC（`amlogic,gx-vdec`） | H.264 / H.265 硬解 |
@@ -47,7 +48,10 @@ BL1(ROM) → BL2(原厂 2018) → BL30/BL31(原厂) → BL33 = U-Boot 2026.10 di
 |---|---|---|
 | nand-boot（原厂引导区） | 0x0 – 0x800000 | BL2/BL33 等，UBT 刷机时更新 |
 | **跳过区** | 0x800000 – 0xB800000 | 原厂 nand_key(PEB10-13) + 真坏块 90/91，**永不使用** |
-| **nand-ubi（UBI 数据区）** | **0xB800000 (184MiB) – 8GiB** | 4004 good PEB，坏块 0 |
+| **nand-ubi（UBI 数据区）** | **0xB800000 (184MiB) – 8GiB** | 前 92 个 PEB 不用，剩余 4004 PEB 建 UBI；UBI 区内实测坏块 0 |
+
+> 全片曾由原厂 MFTL 标记 59 个坏块，但该 BBT 不可信（有假坏块，也有真坏块），因此 UBI 布局
+> 直接按“跳过前 92 PEB + 后段全好”规划，不依赖 BBT 扫描结果。
 
 ### 1.4 UBI 卷表（r79 镜像，attach 后 6 卷）
 
@@ -56,7 +60,7 @@ BL1(ROM) → BL2(原厂 2018) → BL30/BL31(原厂) → BL33 = U-Boot 2026.10 di
 | 0 | rootfs | static | **1GiB**（数据 922MiB，预留升级余量） | Lakka SYSTEM squashfs（只读挂载） |
 | 1 | kernel | static | 29.3MiB | Linux 6.18.0 arm64 Image |
 | 2 | dtb | static | 30KB | 补丁版 DTB（**蓝牙节点已禁用**） |
-| 3 | userdata | dynamic | ~6.6GiB | UBIFS → /storage（所有可写内容） |
+| 3 | userdata | dynamic | ~6.49GiB（3374 PEB） | UBIFS → /storage（所有可写内容） |
 | 4/5 | uboot_env / uboot_env_r | dynamic | 8KB×2 | 空置（env 已改 NOWHERE，不使用） |
 
 ### 1.5 U-Boot r80 特性（相对 r78）
@@ -232,7 +236,7 @@ repack.py <v71 GA 原厂镜像> <bootloader.bin> <bl33.enc> <out.img>
 - 几何：PEB 2MiB / LEB 2064384 / min-io 8192 / VID offset 24576
 - 卷大小账：rootfs 512PEB(1GiB) + kernel 15 + dtb 1 + userdata 动态 + env 2 + 布局 2 + BEB 78 + 余 20 ≤ 4004
 - `ubinize -m 8192 -s 8192 -O 24576 -p 2097152`
-- 产物头部自检：每 PEB EC=0x55424923 / VID=0x55424921
+- 产物头部自检：前 3 个 PEB 的 EC=0x55424923 / VID=0x55424921（脚本只抽查前 3 个，不是全盘扫描）
 
 ### 4.5 TFTP 分段（04-build-scripts\split_tftp_segments.py）
 
@@ -431,7 +435,7 @@ U 盘实测：usb 1-1 "Disk 2.0" (346d:5678) → usb-storage → sda (8.05GB) �
 |---|---|---|
 | **引导链改造** | 保留原厂 BL2/BL30/BL31，只替换 BL33（U-Boot），FIP 重打包 + BL33 ≤ 512KB 护栏 | 任何想保留原厂引导、又想换 U-Boot 的 Amlogic 盒子（GXL / G12A / G12B） |
 | **NAND → UBI** | 跳过原厂 key 区与真坏块，从 `0xB800000` 起建 UBI；VID offset 24576 避开 MLC 配对页 | 老 NAND 机顶盒/工控机改 Linux；NAS 系统（OMV / Armbian / Debian）的底层存储布局 |
-| **NAND 驱动修复** | 保留加扰位、ECC 空页兜底、DMA 前刷 cache、ECC 状态缓冲清零、补发 SEED | 任何 Amlogic NFC 平台移植主线内核 |
+| **NAND 驱动修复** | `NAND_NEED_SCRAMBLING`（发 SEED）、DT ECC 40/1024 + BCH 编码 6、读写保留加扰位 bit19、空页物理裸读兜底、DMA 前刷 cache、读前清零 ECC 状态缓冲、`NAND_CE0`、读写擦 CFG=`0x800000e5` | 任何 Amlogic NFC 平台移植主线内核 |
 | **env = NOWHERE** | 环境变量编译进二进制，移除 `saveenv` | NAND 老化/写入不稳的设备，避免 env 写坏后无法启动 |
 | **OTG PHY 双主机** | 条件化 GXL「强制设备模式」quirk（`patch_kernel_usb.py`） | 想把刷机口改造成第二个 USB Host 的 GXL 盒子（接 U 盘/硬盘盒做 NAS） |
 | **TFTP 分段灌入** | 大镜像切成 ≤244MiB 分段，逐段 `tftpboot` + `nand write` | RAM 小于镜像体积的设备（1GB 内存灌 974MB 系统） |
@@ -486,37 +490,39 @@ noVNC 方案（§9）不依赖 Lakka：交叉编译 `drmcap.c`，部署 `vncsrv.
 # 正确：从上一版实机验证过的目录复制
 cp -a /root/uboot/verify_r80 /root/uboot/verify_r90
 
-# 错误：从源码 defconfig 重新配置 —— 会丢失 dtb 加载地址等实机修正
-make meson-gxl-s905x-p212_defconfig
+# 错误：用源码 defconfig 重新生成配置 —— 会丢失实机修正
+make b860av11t_min_defconfig     # 或 b860av11t_net_defconfig
 ```
 
-源码 defconfig 与实机配置存在漂移（dtb 加载地址、NAND 时序、console 参数）。升级时只替换
-U-Boot 源码树，保留 `.config` 与板级补丁，再 `make olddefconfig` 让新增选项取默认值。
+这不是理论风险，本机实际踩过：源码 defconfig 写的是 `CONFIG_ENV_IS_NOWHERE=y`，但 r78 实机
+`.config` 是 `CONFIG_ENV_IS_IN_UBI=y`；dtb 加载地址也一个是 `0x10000000`、一个是 `0x20000000`。
+直接用 defconfig 重建，bootcmd 会变，启动行为跟着变。升级时只替换 U-Boot 源码树，保留
+`.config` 与板级补丁，再 `make olddefconfig` 让新增选项取默认值。
 
 ### 13.2 升级步骤
 
 | 步骤 | 命令 / 检查点 |
 |---|---|
 | 1. 备份当前 bootloader | 保存 `boot-diag-r80.img` 与串口启动日志，确认可回刷 |
-| 2. 记录当前配置 | `cp .config .config.r80.bak`；升级后 `diff` 只允许预期差异 |
-| 3. 更新源码树 | `git fetch && git checkout v2027.xx`，不要 `git clean -xdf` 清掉本地补丁 |
+| 2. 记录当前配置 | 在构建目录（`O=`）内 `cp .config .config.r80.bak`；升级后 `diff` 只允许预期差异 |
+| 3. 更新源码树 | 在 `/root/uboot/u-boot` 内 `git fetch && git checkout v2027.xx`，不要 `git clean -xdf` 清掉本地补丁；构建目录 `verify_rXX` 不受影响 |
 | 4. 重放本地补丁 | NAND 驱动修复链、env NOWHERE、bootargs、横幅，逐条 `git apply` 并人工核对 |
 | 5. olddefconfig | `make olddefconfig`，检查新增 Kconfig 是否默认开启不需要的功能（体积！） |
-| 6. 编译并检查体积 | `u-boot.bin` ≤ 512KB（建议 ≤ 496KB 留对齐余量） |
-| 7. BL33 加密封装 | `aml_encrypt_gxl --bl3enc --input u-boot.bin`，容器 ≤ 524288 B |
+| 6. 编译 | 生成 `u-boot.bin`，记录大小（此文件本身不是硬约束对象） |
+| 7. BL33 加密封装 | `aml_encrypt_gxl --bl3enc --input u-boot.bin`；**加密容器 `bl33.bin.enc` ≤ 524288 B（0x80000）** 是硬上限，建议 ≤ 496KiB 留对齐余量 |
 | 8. FIP 重打包 | `repack.py <原厂 GA 镜像> <bootloader.bin> <bl33.enc> <out.img>` |
 | 9. 护栏自检 | `bl2 unchanged=True` / `outside=0` / `selfconsistent=True`，任一不过就停止 |
-| 10. 内存验证 | `tftpboot` 到 RAM 后 `go`，串口确认横幅与新版本号，确认 NAND 读写正常 |
+| 10. 内存验证 | `tftpboot 0x01000000 u-boot.bin` + `go 0x01000000` 链式启动，串口确认横幅与新版本号，确认 NAND 读写正常 |
 | 11. 落盘 | 仅在第 10 步通过后写 NAND；写前再次确认旧镜像已备份 |
 
 ### 13.3 大版本跨越的已知风险点
 
 | 风险 | 表现 | 处理 |
 |---|---|---|
-| **BL33 体积超 512KB** | 原厂 BL2 ErrorCHK 校验失败，不开机 | 关视频/Logo/wget 等非必需功能；必要时做两级 U-Boot |
+| **加密容器超 512KB** | 原厂 BL2 ErrorCHK 校验失败，不开机 | 关视频/Logo/wget 等非必需功能；必要时做两级 U-Boot |
 | **FIP header size 未同步** | 改了容器长度但仍按旧大小加载 | 必须同时改 FIP header（`0xC000` 偏移）的 bl33 size 字段 |
 | **Kconfig 默认值变化** | 体积暴涨或功能丢失 | 每次 `olddefconfig` 后 diff `.config`，逐项确认 |
-| **NAND 驱动 API 变更** | 编译通过但 probe 失败/读写异常 | 回归 §5 清单：加扰位、SEED、ECC 状态清零、DMA 刷新 |
+| **NAND 驱动 API 变更** | 编译通过但 probe 失败/读写异常 | 回归 §12.1 的 NAND 修复清单：SEED、加扰位、ECC 状态清零、DMA 刷新 |
 | **DTS 漂移** | NAND / 网口 / USB 不工作 | 用 `dtc` 反编译比对，确认板级节点仍在 |
 | **env 后端被重置** | 又出现 bad CRC / 写 env 卡死 | 确认 `CONFIG_ENV_IS_NOWHERE=y`、`saveenv` 未被编译进来 |
 
@@ -530,13 +536,18 @@ U-Boot 源码树，保留 `.config` 与板级补丁，再 `make olddefconfig` �
 
 | 版本 | 问题 | 根因 |
 |---|---|---|
+| r37a | probe 后异步 SError（ELR=vsnprintf） | `INIT_LIST_HEAD(&nfc->chips)` 缺失，DM 私有内存未清零，链表头是垃圾 |
+| r38 | NAND 完全不工作 | 缺 `NAND_NEED_SCRAMBLING` → 不发 SEED，N2M/M2N 数据泵不启动；DT ECC 须为 40/1024 |
+| r41 | 写入不落盘 | BCH 枚举错位：40/1024 行的 bch 字段应为 6（硬件编码），写成 5 导致命令配置错位 |
+| r43 | 写命令不完成 | M2N 与 PAGEPROG 之间缺排空：`IDLE×2 + wait_cmd_finish` |
+| r44 | 写入仍无效 | PAGEPROG 编码 `0x14100`（低 8 位是 READ0）→ 改为 `0x14010` |
 | r50test | BL33 槽位扩容无效 | 只改容器长度，未同步 FIP header 的 size 字段 |
 | r51 | 无 fastboot | 配置晚于镜像生成时间，需重编并裁剪体积 |
 | r54 | 开机无限重启 | `nandprobe` 括号位置错误，释放了仍在使用的 DMA 缓冲区 |
-| r65 | NAND 写入无效 | 写方向未保留加扰位（bit19） |
-| r66 | 修复方案被证伪 | 仅移除加扰位导致写入数据不可读 |
-| r68/r69 | 大块连续读取随机损坏 | ECC 状态缓冲区未清零，轮询读到上一页完成标志 |
-| r80 | env 写入卡死风险 | MLC 上 `saveenv` 会触发 NAND 等待超时 → 改 env NOWHERE |
+| r65 | NAND 写入无效 | 写路径移除了加扰位（bit19），数据写不进页 |
+| r66 | 修复方向错误 | 试图用“仅去掉加扰位”修复 r65，被实机证伪；正确做法是保留加扰位（带加扰位写入 `ecc=0`） |
+| r68/r69 | 大块连续读取随机损坏 | ECC 状态缓冲区未清零，轮询读到上一页残留的完成标志 |
+| r80 | env 写入卡死风险 | MLC 上 `saveenv` 触发 NAND 等待超时 → 改 env NOWHERE |
 
 ## 14. 源码与许可
 
