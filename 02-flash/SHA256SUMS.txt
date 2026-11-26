@@ -1,0 +1,2 @@
+# 第三方工具校验值（本仓库不分发该文件，仅提供校验）
+e7cf0a69e05e5333d3f1ab9e4a795d883346662c9dc210b26b8ee1714bcacc5e  Amlogic_USB_Burning_Tool_v2.2.4.zip

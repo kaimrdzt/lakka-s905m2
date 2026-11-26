@@ -1,0 +1,17 @@
+# 大体积二进制走 GitHub Releases，不进 Git
+01-images/*.ubi
+01-images/*.img
+01-images/*.new
+02-flash/*.zip
+02-flash/tftp/
+03-restore/*.tgz
+03-restore/vnc-tools/drmcap
+05-themes/*/png/
+05-themes/*/font.ttf
+05-themes/*/*.ttf
+
+# 运行时/临时产物
+*.log
+*.tmp
+__pycache__/
+*.pyc

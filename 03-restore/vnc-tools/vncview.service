@@ -1,0 +1,17 @@
+[Unit]
+Description=Browser view/control of the HDMI output (drmcap + noVNC)
+# No ordering on graphical.target / retroarch.service: those are reached after
+# multi-user.target (which pulls this unit in), so ordering would create a cycle
+# and systemd would delete the job.  vnc_run.sh waits for the framebuffer instead.
+After=network.target
+
+[Service]
+Type=simple
+Environment=VNC_RES=960x540
+Environment=VNC_FPS=5
+ExecStart=/storage/.config/vnc/vnc_run.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
