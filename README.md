@@ -1,6 +1,8 @@
 # B860AV1.1-T 定制 Lakka 系统 — 完整移植工程
 
-> 生成：2026-11-26（首版 11-25，主题/颜色修复/720p 更新至 11-26）。设备：ZTE B860AV1.1-T（Amlogic S905M2-B / GXL，1GB DDR3，8GiB MLC NAND）。
+> **硬件**：Amlogic S905M2-B（GXL 平台）/ 1GB DDR3 / 8GiB Micron MLC NAND
+> **整机**：ZTE B860AV1.1-T 机顶盒
+> 生成：2026-11-26（首版 11-25，主题/颜色修复/720p 更新至 11-26）。
 > 本项目是当前盒子上运行固件的**完整可复现交付**：刷机脚本、编译脚本、配置、全部避坑记录。
 
 **大体积二进制不入库**（UBI 镜像 974MB、bootloader 110MB、内核、脱敏 `/storage` 备份）请到
@@ -282,7 +284,7 @@ make ARCH=arm64 CROSS_COMPILE=<工具链>/aarch64-libreelec-linux-gnu- KSRC=<内
 ### 6.1 仓库内文件（Git 跟踪）
 
 ```
-lakka-b860av11t\
+lakka-s905m2\
 ├── README.md                          本文档
 ├── LICENSE                            GPL-2.0
 ├── 01-images\
