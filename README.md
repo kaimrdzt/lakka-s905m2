@@ -15,14 +15,33 @@
 
 ## 1. 系统概览
 
-### 1.1 启动链
+### 1.1 硬件规格
+
+| 项目 | 规格 | 备注 |
+|---|---|---|
+| SoC | Amlogic S905M2-B（GXL 平台，`amlogic,meson-gxl`） | 4× ARM Cortex-A53，cpufreq 动态调频 |
+| GPU | ARM Mali-450（`arm,mali-450`） | lima 驱动，固定电压运行 |
+| 内存 | 1GiB DDR3，单 Rank | DTB `memory@0` = `0x40000000` |
+| 存储 | 8GiB Micron MT29F64G08CBABBWP **MLC NAND** | 4096 PEB × 2MiB，page 2KiB，ECC 40-bit，无 SLC 模拟 |
+| 网络 | 10/100M RMII（`snps,dwmac-3.70a`） | 内部 PHY 地址 8，`amlogic,meson-gxbb-dwmac` |
+| WiFi | RTL8189FS（SDIO） | DTB 兼容 `brcm,bcm4329-fmac`，需专用 `8189fs` 驱动（§3.3） |
+| 蓝牙 | BCM43438 节点存在，**已禁用** | 硬件未贴片 / 无天线 |
+| USB | 2× USB2.0：1× Host（xhci）+ 1× OTG（dwc2） | OTG 默认 peripheral，仅用于刷机；v80 补丁可改双 Host（§8.1） |
+| 显示 | HDMI 1.4（`amlogic,meson-gxl-dw-hdmi`） | 720p60 / 1080p60 实测可用 |
+| 音频 | AIU（I2S）+ HDMI 音频 | dai-link-1 的 codec-0 必须指向 `AIU_HDMI CTRL_I2S`，指向 `hdmi_tx` 会与 dai-link-2 冲突（-EBUSY） |
+| 视频解码 | GXL VDEC（`amlogic,gx-vdec`） | H.264 / H.265 硬解 |
+| 调试串口 | `ttyAML0`，115200 8N1 | 板载焊点，USB-CH340 转接 |
+
+> 规格来自本机 DTB 反编译与开机日志交叉核对；未贴片的外设（蓝牙）如实标注，不写推测值。
+
+### 1.2 启动链
 
 ```
 BL1(ROM) → BL2(原厂 2018) → BL30/BL31(原厂) → BL33 = U-Boot 2026.10 diag-r80（自编）
   → ubi part → 读 kernel/dtb 卷 → booti → Linux 6.18.0（Lakka rootfs）
 ```
 
-### 1.2 NAND 物理布局（8GiB = 4096 PEB × 2MiB）
+### 1.3 NAND 物理布局（8GiB = 4096 PEB × 2MiB）
 
 | 区域 | 范围 | 说明 |
 |---|---|---|
@@ -30,7 +49,7 @@ BL1(ROM) → BL2(原厂 2018) → BL30/BL31(原厂) → BL33 = U-Boot 2026.10 di
 | **跳过区** | 0x800000 – 0xB800000 | 原厂 nand_key(PEB10-13) + 真坏块 90/91，**永不使用** |
 | **nand-ubi（UBI 数据区）** | **0xB800000 (184MiB) – 8GiB** | 4004 good PEB，坏块 0 |
 
-### 1.3 UBI 卷表（r79 镜像，attach 后 6 卷）
+### 1.4 UBI 卷表（r79 镜像，attach 后 6 卷）
 
 | vol | 名称 | 类型 | 大小 | 内容 |
 |---|---|---|---|---|
@@ -40,7 +59,7 @@ BL1(ROM) → BL2(原厂 2018) → BL30/BL31(原厂) → BL33 = U-Boot 2026.10 di
 | 3 | userdata | dynamic | ~6.6GiB | UBIFS → /storage（所有可写内容） |
 | 4/5 | uboot_env / uboot_env_r | dynamic | 8KB×2 | 空置（env 已改 NOWHERE，不使用） |
 
-### 1.4 U-Boot r80 特性（相对 r78）
+### 1.5 U-Boot r80 特性（相对 r78）
 
 - **PREBOOT 移除**：开机不再有 `splash/bmp/already selected` 三行噪声
 - **env = NOWHERE**：环境变量编译进二进制；`Loading Environment from nowhere... OK` 瞬时完成，无 bad CRC，**永不写 NAND env**（该板 MLC 上写 env 有卡死史）
@@ -48,7 +67,7 @@ BL1(ROM) → BL2(原厂 2018) → BL30/BL31(原厂) → BL33 = U-Boot 2026.10 di
 - mtdparts：`nand0:0x800000@0(nand-boot),-@0xb800000(nand-ubi)`
 - 网络（wget/ping）与 NAND 救援命令保留
 
-### 1.5 /storage 可写层（全部配置的所在，升级系统不丢）
+### 1.6 /storage 可写层（全部配置的所在，升级系统不丢）
 
 | 路径 | 内容 |
 |---|---|
@@ -401,7 +420,125 @@ U 盘实测：usb 1-1 "Disk 2.0" (346d:5678) → usb-storage → sda (8.05GB) �
 3. 换新二进制（RGBX 输出）后 `-c` 残留 → 多一次交换 → 棕色。
 最终修复：drmcap 输出真 RGBX（byte0=R）+ vncsrv 声明 R@0 + **去掉 `-c`** → 两端一致。修复文件已入 `03-restore\vnc-tools\`。
 
-## 12. 源码与许可
+## 12. 可复用经验与衍生用途
+
+本项目不是一次性适配：多数模块可以拆出来复用到其他 Amlogic 盒子、其他 ARM64 Linux 发行版，
+以及 NAS 类系统。这一节明确哪些能借、怎么借、哪些不能照抄。
+
+### 12.1 按模块划分的复用价值
+
+| 模块 | 本项目做法 | 可复用到 |
+|---|---|---|
+| **引导链改造** | 保留原厂 BL2/BL30/BL31，只替换 BL33（U-Boot），FIP 重打包 + BL33 ≤ 512KB 护栏 | 任何想保留原厂引导、又想换 U-Boot 的 Amlogic 盒子（GXL / G12A / G12B） |
+| **NAND → UBI** | 跳过原厂 key 区与真坏块，从 `0xB800000` 起建 UBI；VID offset 24576 避开 MLC 配对页 | 老 NAND 机顶盒/工控机改 Linux；NAS 系统（OMV / Armbian / Debian）的底层存储布局 |
+| **NAND 驱动修复** | 保留加扰位、ECC 空页兜底、DMA 前刷 cache、ECC 状态缓冲清零、补发 SEED | 任何 Amlogic NFC 平台移植主线内核 |
+| **env = NOWHERE** | 环境变量编译进二进制，移除 `saveenv` | NAND 老化/写入不稳的设备，避免 env 写坏后无法启动 |
+| **OTG PHY 双主机** | 条件化 GXL「强制设备模式」quirk（`patch_kernel_usb.py`） | 想把刷机口改造成第二个 USB Host 的 GXL 盒子（接 U 盘/硬盘盒做 NAS） |
+| **TFTP 分段灌入** | 大镜像切成 ≤244MiB 分段，逐段 `tftpboot` + `nand write` | RAM 小于镜像体积的设备（1GB 内存灌 974MB 系统） |
+| **内核 logo 衔接** | fbcon（1.8 秒）+ initramfs ply-image（约 5 秒）两段式 | 任何嵌入式 Linux 的开机画面优化 |
+| **noVNC 远程** | DRM scanout 直读 + RFB over WebSocket，仅标准库 | 无显示器/无网络的设备远程运维、盒子改服务器后的带外管理 |
+| **U-Boot 升级方法** | 从已验证构建目录派生 + 护栏自检（§13） | 所有基于原厂 BL2 的 Amlogic 设备升级 U-Boot |
+
+### 12.2 典型衍生场景
+
+**1）刷其他 ARM64 Linux 发行版（Armbian / Debian / Ubuntu）**
+
+引导层完全复用：`boot-diag-r80.img` 提供 U-Boot，`ubi part` + `ubi read` 读卷，`booti` 启动任意
+arm64 `Image` + DTB。把 kernel/dtb 卷换成目标发行版的内核与设备树，rootfs 卷换成对应
+squashfs/ext4 即可。DTB 必须保留本板的 NAND 与 USB 修改（§8.1），否则外设不工作。
+
+**2）把盒子改成 NAS（OMV / Armbian / fnOS ARM 版）**
+
+- 存储层直接复用本项目的 UBI 布局与 MLC 配对页规避策略（§1.3）
+- 想接 2.5 寸硬盘/U 盘：应用 §8.1 双主机补丁，两个 USB 口都能挂存储
+- 注意本板是百兆 RMII，NAS 吞吐上限约 11MB/s；要高吞吐请选千兆机型
+- **fnOS 目前是 x86_64 平台**，不能直接跑在这颗 SoC 上；其 ARM 版本若推出，本文的引导链、
+  UBI 布局、TFTP 部署方法同样适用
+
+**3）其他 Amlogic GXL / G12 盒子**
+
+NAND 驱动修复（加扰 / ECC / 空页）与 env NOWHERE 策略不依赖具体机型，换 DTB 与 NAND 几何参数
+即可移植。坏块跳过区要按目标机器的实际 BBT 重新标定，**不要照抄本机的 `0x800000–0xB800000`**。
+
+**4）机顶盒改带外管理 / 远程桌面终端**
+
+noVNC 方案（§9）不依赖 Lakka：交叉编译 `drmcap.c`，部署 `vncsrv.py` + noVNC 前端即可，
+可直接用于 Armbian/OMV 等系统。
+
+### 12.3 不能直接照搬的部分
+
+| 项 | 原因 |
+|---|---|
+| NAND 几何参数（PEB / LEB / VID offset） | 与具体颗粒绑定，换颗粒必须重测 |
+| 坏块跳过区偏移 | 本机 BBT 不可信，实际坏块位置因机器而异 |
+| DTB | 必须匹配目标板的内存、PHY、USB、声卡连线 |
+| `8189fs.ko` | vermagic 必须与目标内核完全一致，换内核必须重编 |
+| 静态 IP / 串口设备名 | 按实际网络与 COM 口修改 |
+
+## 13. U-Boot 版本升级指南
+
+当前 U-Boot 为 upstream 2026.10 + 本地补丁，封装进原厂 FIP 后由原厂 BL2 加载。
+升级到更新版本（如 2027.x）时，按下面的流程把风险压到最低。
+
+### 13.1 铁律：从已验证构建目录派生
+
+```bash
+# 正确：从上一版实机验证过的目录复制
+cp -a /root/uboot/verify_r80 /root/uboot/verify_r90
+
+# 错误：从源码 defconfig 重新配置 —— 会丢失 dtb 加载地址等实机修正
+make meson-gxl-s905x-p212_defconfig
+```
+
+源码 defconfig 与实机配置存在漂移（dtb 加载地址、NAND 时序、console 参数）。升级时只替换
+U-Boot 源码树，保留 `.config` 与板级补丁，再 `make olddefconfig` 让新增选项取默认值。
+
+### 13.2 升级步骤
+
+| 步骤 | 命令 / 检查点 |
+|---|---|
+| 1. 备份当前 bootloader | 保存 `boot-diag-r80.img` 与串口启动日志，确认可回刷 |
+| 2. 记录当前配置 | `cp .config .config.r80.bak`；升级后 `diff` 只允许预期差异 |
+| 3. 更新源码树 | `git fetch && git checkout v2027.xx`，不要 `git clean -xdf` 清掉本地补丁 |
+| 4. 重放本地补丁 | NAND 驱动修复链、env NOWHERE、bootargs、横幅，逐条 `git apply` 并人工核对 |
+| 5. olddefconfig | `make olddefconfig`，检查新增 Kconfig 是否默认开启不需要的功能（体积！） |
+| 6. 编译并检查体积 | `u-boot.bin` ≤ 512KB（建议 ≤ 496KB 留对齐余量） |
+| 7. BL33 加密封装 | `aml_encrypt_gxl --bl3enc --input u-boot.bin`，容器 ≤ 524288 B |
+| 8. FIP 重打包 | `repack.py <原厂 GA 镜像> <bootloader.bin> <bl33.enc> <out.img>` |
+| 9. 护栏自检 | `bl2 unchanged=True` / `outside=0` / `selfconsistent=True`，任一不过就停止 |
+| 10. 内存验证 | `tftpboot` 到 RAM 后 `go`，串口确认横幅与新版本号，确认 NAND 读写正常 |
+| 11. 落盘 | 仅在第 10 步通过后写 NAND；写前再次确认旧镜像已备份 |
+
+### 13.3 大版本跨越的已知风险点
+
+| 风险 | 表现 | 处理 |
+|---|---|---|
+| **BL33 体积超 512KB** | 原厂 BL2 ErrorCHK 校验失败，不开机 | 关视频/Logo/wget 等非必需功能；必要时做两级 U-Boot |
+| **FIP header size 未同步** | 改了容器长度但仍按旧大小加载 | 必须同时改 FIP header（`0xC000` 偏移）的 bl33 size 字段 |
+| **Kconfig 默认值变化** | 体积暴涨或功能丢失 | 每次 `olddefconfig` 后 diff `.config`，逐项确认 |
+| **NAND 驱动 API 变更** | 编译通过但 probe 失败/读写异常 | 回归 §5 清单：加扰位、SEED、ECC 状态清零、DMA 刷新 |
+| **DTS 漂移** | NAND / 网口 / USB 不工作 | 用 `dtc` 反编译比对，确认板级节点仍在 |
+| **env 后端被重置** | 又出现 bad CRC / 写 env 卡死 | 确认 `CONFIG_ENV_IS_NOWHERE=y`、`saveenv` 未被编译进来 |
+
+### 13.4 回滚
+
+- 保留一份可用的 `boot-diag-rXX.img`，任何时候可用 USB Burning Tool 回刷
+- **回刷时不要勾 Erase flash**，否则会清空 UBI 区，需要重新灌系统
+- 回刷后串口确认横幅版本与 UBI 卷可正常读取；userdata/rootfs 卷不受影响
+
+### 13.5 本项目的真实回归记录（版本迭代教训）
+
+| 版本 | 问题 | 根因 |
+|---|---|---|
+| r50test | BL33 槽位扩容无效 | 只改容器长度，未同步 FIP header 的 size 字段 |
+| r51 | 无 fastboot | 配置晚于镜像生成时间，需重编并裁剪体积 |
+| r54 | 开机无限重启 | `nandprobe` 括号位置错误，释放了仍在使用的 DMA 缓冲区 |
+| r65 | NAND 写入无效 | 写方向未保留加扰位（bit19） |
+| r66 | 修复方案被证伪 | 仅移除加扰位导致写入数据不可读 |
+| r68/r69 | 大块连续读取随机损坏 | ECC 状态缓冲区未清零，轮询读到上一页完成标志 |
+| r80 | env 写入卡死风险 | MLC 上 `saveenv` 会触发 NAND 等待超时 → 改 env NOWHERE |
+
+## 14. 源码与许可
 
 | 组件 | 版本 / 来源 | 许可 |
 |---|---|---|
