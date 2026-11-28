@@ -28,7 +28,18 @@ echo "---- env config sanity ----"
 grep -E 'CONFIG_ENV_IS_NOWHERE|CONFIG_ENV_IS_IN_UBI|CONFIG_ENV_UBI|diag-r80' .config | head -10
 
 make -C /root/uboot/u-boot O=$DST olddefconfig >/dev/null
-make -C /root/uboot/u-boot O=$DST -j8 CROSS_COMPILE=aarch64-linux-gnu- 2>&1 | grep -E "error|Error" | head -5 || true
+set +e
+make -C /root/uboot/u-boot O=$DST -j8 CROSS_COMPILE=aarch64-linux-gnu- > "$DST/build.log" 2>&1
+make_rc=$?
+set -e
+if [ "$make_rc" -ne 0 ]; then
+  echo "make failed (exit=$make_rc), last errors:"
+  grep -iE "error" "$DST/build.log" | head -20 || true
+  tail -40 "$DST/build.log"
+  exit "$make_rc"
+fi
+echo "make succeeded; errors matching grep (if any):"
+grep -iE "error" "$DST/build.log" | head -5 || true
 
 echo "---- result ----"
 ls -la $DST/u-boot.bin

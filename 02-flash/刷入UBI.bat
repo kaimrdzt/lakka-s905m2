@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 chcp 65001 >nul
 title B860AV1.1-T UBI flash (r79 image, 1GiB rootfs)
 cd /d "%~dp0"
@@ -27,6 +27,16 @@ if not exist "%~dp0flash_ubi.ps1" (
     goto END
 )
 
+echo.
+echo [警告] 本脚本会擦除整个 UBI 数据区，未备份的数据会丢失。
+set "CONFIRM="
+set /p "CONFIRM=已确认重要数据备份？输入 YES 继续: "
+if /I not "%CONFIRM%"=="YES" (
+    echo 未确认，已取消。
+    pause
+    goto END
+)
+
 echo [1/3] 启动 TFTP 服务器（服务目录 %~dp0tftp）...
 start "B860TFTP" /min cmd /c "python "%~dp0tftp_server.py""
 timeout /t 2 >nul
@@ -50,7 +60,7 @@ if "%RC%"=="0" (
 ) else (
     echo ============ 失败 rc=%RC% ============
     echo 排查：COM14 是否被占用？TFTP 窗口有无报错？盒子网线是否连接？
-    echo 可直接重新运行本 bat（脚本第一步是全量擦除，重跑安全）。
+    echo 重跑会再次全片擦除 UBI 数据区，未备份数据会丢失；请先备份并排查后再运行。
 )
 pause
 :END

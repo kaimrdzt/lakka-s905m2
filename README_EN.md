@@ -245,6 +245,11 @@ repack.py <v71 GA 原厂镜像> <bootloader.bin> <bl33.enc> <out.img>
 
 Four segments of 244/244/244/242 MiB, matching the write addresses in flash_ubi.ps1 one-to-one (starting at 0xB800000). Re-split whenever the image version changes.
 
+```bash
+mkdir -p 02-flash/tftp
+python3 04-build-scripts/split_tftp_segments.py <ubi镜像> 02-flash/tftp
+```
+
 ### 4.6 Build the 8189fs Driver (including disabling the dual interface)
 
 Source: `/root/rtl8189fs` (the rtl8189fs branch of jwrdegoede/rtl8189ES_linux)
@@ -291,7 +296,7 @@ make ARCH=arm64 CROSS_COMPILE=<工具链>/aarch64-libreelec-linux-gnu- KSRC=<内
 
 ### 🟡 Config / encoding level
 
-13. **PowerShell 5.1 needs a BOM to read UTF-8 Chinese in .ps1**; editing with tools strips the BOM, so re-add it. bat uses `chcp 65001` + UTF-8 BOM.
+13. **PowerShell 5.1 needs a BOM to read UTF-8 Chinese in .ps1**; editing with tools strips the BOM, so re-add it. bat uses `chcp 65001` + UTF-8 without BOM (a BOM breaks the first `@echo off` line).
 14. **`%s` in a systemd unit is a specifier** (expanded into a shell path) — `date +%s` must be written as `date +%%s` (this once made the timestamp file contain "/bin/bash").
 15. **EnvironmentFile requires KEY=value format**: tz-data.service reads `/storage/.cache/timezone`; bare `Asia/Shanghai` is invalid, it must be `TIMEZONE=Asia/Shanghai`.
 16. **/var is tmpfs**: all state that must survive a reboot (iwd PSK, timesync timestamps) must be redirected to /storage — iwd uses `Environment=STATE_DIRECTORY=/storage/iwd` (drop-in), connman uses the official override point `/storage/.config/connman_main.conf`.

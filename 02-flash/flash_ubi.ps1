@@ -16,6 +16,20 @@ $sp.Open(); Start-Sleep -Milliseconds 300
 [void]$sp.ReadExisting()
 function Send($c){ $sp.Write("$c`r") }
 
+# 命令结束后会回到 U-Boot>；等待并清空这段提示符，避免下一次等待被残留提示符误判为完成。
+function Drain-Prompt {
+  param([int]$MaxMs = 3000)
+  $deadline = (Get-Date).AddMilliseconds($MaxMs)
+  $acc = New-Object System.Text.StringBuilder
+  while ((Get-Date) -lt $deadline) {
+    Start-Sleep -Milliseconds 100
+    $c = $sp.ReadExisting()
+    if ($c.Length) { [void]$acc.Append($c) }
+    if ($acc.ToString() -match 'U-Boot>') { break }
+  }
+  return $acc.ToString()
+}
+
 Write-Host "=== [$(TS)] 探测盒子当前状态 ===" -ForegroundColor Cyan
 Send ''
 Start-Sleep -Milliseconds 800
@@ -51,12 +65,12 @@ Start-Sleep -Milliseconds 600; [void]$sp.ReadExisting()
 
 Write-Host "=== [$(TS)] 擦除 UBI 数据区（约 8-20 秒）===" -ForegroundColor Cyan
 Send 'nand erase 0xB800000 0x1F4800000'
-$sw=[Diagnostics.Stopwatch]::StartNew(); $acc=New-Object System.Text.StringBuilder; $shown=0
+$sw=[Diagnostics.Stopwatch]::StartNew(); $acc=New-Object System.Text.StringBuilder; $shown=0; $done=$false
 while($sw.Elapsed.TotalSeconds -lt 300){
     Start-Sleep -Milliseconds 150
     $c=$sp.ReadExisting(); if($c.Length){[void]$acc.Append($c)}
     $t=$acc.ToString()
-    if($t -match 'U-Boot>'){ break }   # 命令结束的唯一标志：提示符返回
+    if($t -match 'U-Boot>'){ $done=$true; break }   # 命令结束的唯一标志：提示符返回
     $m=[regex]::Matches($t,'Erasing at 0x([0-9a-f]+)')
     if($m.Count -gt $shown){
         $shown=$m.Count
@@ -64,6 +78,7 @@ while($sw.Elapsed.TotalSeconds -lt 300){
         Write-Host ("    擦除 {0,3}%  （{1,5:N0} 秒）" -f $pct,$sw.Elapsed.TotalSeconds) -ForegroundColor Cyan
     }
 }
+if(-not $done){ throw "擦除超时（300 秒未返回 U-Boot 提示符）" }
 Write-Host ("[$(TS)] [OK] 擦除完成，用时 {0:N0} 秒" -f $sw.Elapsed.TotalSeconds) -ForegroundColor Green
 
 $i=0
@@ -93,15 +108,19 @@ foreach($s in $segs){
     if(-not $ok){ throw "分段 $i TFTP 传输失败/超时" }
     Write-Host ("[$(TS)] [OK] 第 $i 段传输完成，用时 {0:N0} 秒" -f $sw.Elapsed.TotalSeconds) -ForegroundColor Green
 
+    # 清空 tftpboot 返回后的残留 U-Boot> 提示符，避免下面写入循环误判为完成。
+    [void](Drain-Prompt 3000)
+
     Write-Host "=== [$(TS)] [$i/4] 写入 NAND（约 1-3 分钟，无进度输出，用心跳确认活着）===" -ForegroundColor Cyan
     Send "nand write 0x20000000 $($s.P) $($s.L)"
     $sw=[Diagnostics.Stopwatch]::StartNew()
     $lastBeat=0
+    $done=$false
     while($sw.Elapsed.TotalSeconds -lt 1800){
         Start-Sleep -Milliseconds 200
         $c=$sp.ReadExisting()
         if($c.Length){
-            if($c -match 'U-Boot>'){ break }
+            if($c -match 'U-Boot>'){ $done=$true; break }
             $lastBeat=$sw.Elapsed.TotalSeconds   # 有数据流出也视为活着
         }
         if(($sw.Elapsed.TotalSeconds - $lastBeat) -ge 10){
@@ -109,6 +128,7 @@ foreach($s in $segs){
             Write-Host ("    写入中... {0,5:N0} 秒" -f $sw.Elapsed.TotalSeconds) -ForegroundColor Cyan
         }
     }
+    if(-not $done){ throw "分段 $i 写入超时（1800 秒未返回 U-Boot 提示符）" }
     Write-Host ("[$(TS)] [OK] 第 $i 段写入完成，用时 {0:N0} 秒" -f $sw.Elapsed.TotalSeconds) -ForegroundColor Green
 }
 

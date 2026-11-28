@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Minimal read-only TFTP server for U-Boot image transfer.
 
-Serves D:\\b860\\out\\ubi\\tftp over UDP/69 with RFC 2347 option
-negotiation (blksize / tsize / timeout). Single file per client.
+Serves the tftp directory next to this script over UDP/69 with RFC 2347
+option negotiation (blksize / tsize / timeout). Single file per client.
 """
 import os
 import socket

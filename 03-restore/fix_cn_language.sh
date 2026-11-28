@@ -1,4 +1,4 @@
-﻿#!/bin/sh
+#!/bin/sh
 # 修复：恢复被 RA 退出回写覆盖的中文语言设置（先停服务再改）
 set -e
 CFG=/storage/.config/retroarch/retroarch.cfg

@@ -246,6 +246,11 @@ repack.py <v71 GA 原厂镜像> <bootloader.bin> <bl33.enc> <out.img>
 
 244/244/244/242 MiB 四段，与 flash_ubi.ps1 的写地址一一对应（0xB800000 起）。镜像版本变了必须重新切分。
 
+```bash
+mkdir -p 02-flash/tftp
+python3 04-build-scripts/split_tftp_segments.py <ubi镜像> 02-flash/tftp
+```
+
 ### 4.6 编译 8189fs 驱动（含关双接口）
 
 源码：`/root/rtl8189fs`（jwrdegoede/rtl8189ES_linux 的 rtl8189fs 分支）
@@ -292,7 +297,7 @@ make ARCH=arm64 CROSS_COMPILE=<工具链>/aarch64-libreelec-linux-gnu- KSRC=<内
 
 ### 🟡 配置/编码级
 
-13. **PowerShell 5.1 读 .ps1 的 UTF-8 中文需要 BOM**；用工具改文件后 BOM 会被剥掉，要重新补。bat 用 `chcp 65001` + UTF-8 BOM。
+13. **PowerShell 5.1 读 .ps1 的 UTF-8 中文需要 BOM**；用工具改文件后 BOM 会被剥掉，要重新补。bat 用 `chcp 65001` + UTF-8 无 BOM（BOM 会破坏首行 `@echo off`）。
 14. **systemd unit 里 `%s` 是 specifier**（会被展开成 shell 路径）——`date +%s` 必须写成 `date +%%s`（曾导致时间戳文件内容变成 "/bin/bash"）。
 15. **EnvironmentFile 要求 KEY=value 格式**：tz-data.service 读 `/storage/.cache/timezone`，写裸 `Asia/Shanghai` 无效，必须 `TIMEZONE=Asia/Shanghai`。
 16. **/var 是 tmpfs**：一切需要跨重启的状态（iwd PSK、timesync 时间戳）必须重定向到 /storage——iwd 用 `Environment=STATE_DIRECTORY=/storage/iwd`（drop-in），connman 用官方覆盖点 `/storage/.config/connman_main.conf`。
